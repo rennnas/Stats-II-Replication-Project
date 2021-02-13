@@ -1,0 +1,335 @@
+---
+title: "Replication Project"
+output: html_document
+---
+
+Renan Gustavo Magalhães
+25.05.2020
+
+Paper 2 - Vote centers and turnout by election type in Texas.
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(foreign)
+library(tidyr)
+library(tidyselect)
+library(dplyr)
+library(stargazer)
+library(haven) 
+library(cobalt)
+library(ggplot2)
+library(lmtest)
+library(plm)
+library(kableExtra)
+library(MatchIt)
+
+options(scipen = 99) 
+set.seed(123)
+
+data <- read.table("database.tab", header=TRUE)
+
+
+```
+
+
+
+## 1. Introduction
+
+Vote centers (or countywide polling places), are voting spaces that gather all voters, regardless of their address. The idea that favors its implementation is due to the efficiency that these centers theoretically employ. The locations, because they are specifically created for voting, increase voter convenience and, by concentrating voting in a reduced number of spaces, also reduce costs and the number of employees working in the elections. It is also believed that Vote Centers can increase the vote turnout. 
+
+Theories show that the main effects for voter turnout are collective factors, which include social and demographic issues, the rules used in structuring the electoral process and the mobilization of political groups. The ease of voting, whether due to the distance to the polling center or the rules employed, theoretically reduces abstention. Among the main causes pointed to abstention are the availability of time, and the difficulty to reach the polling center.
+
+Previous academic studies propose that switching to Vote Centers potentially increases the presence of voters who are less likely to attend the vote. The authors, however, show that there are no qualitative studies proving this efficiency. In addition, it is left out in analyzes that favor the implementation of Vote Centers if this effect is the same between the different types of voting, or if the effectiveness of these places continues over time. Instead of increasing voter turnout as previous polls show, there is a risk of actually decreasing it by replacing temporary voting centers in the neighborhood, which generally use the space of schools or community centers. With it, the community habit of voting is lost - of finding acquaintances and strengthening the ties of the neighborhood.
+
+
+## 2. Structure
+
+With this information, the study hypothesis is constructed:
+
+H1: Voter turnout will increase in counties that switch to a vote center method in midterm / gubernatorial and presidential elections, compared with constitutional elections.
+
+
+The study uses as an empirical object the state of Texas, which started implementing the Vote Centers program in 2005. In 2018 the number was 52 counties, which used for constitutional amendment, midterm year or presidential year elections.
+
+The data for the construction of the model are from the Texas Legislative Council, the Texas Secretary of State, the Texas State Demographer and from the US Census, covering the different types of election in the period from 2009 to 2018.
+
+Outcome: county level voter turnout.
+
+Main predictor: the interaction between a variable of the presence of a vote center in an election and a variable indicating whether that period is before or after the implementation of the policy.
+
+Control variables: size of the county ( population), median county income and percentage of higher education degree in the county.
+
+Chosen tests: In order to analyse the causal effect of the voting center on voter turnout, controlling for different types of election, median income, population and education, the following methods are used: Difference-in-Differences estimator and fixed effect focused on all three elections; Difference-in-Differences focused on constitutional elections; propensity score matching and linear regression on Difference-in-Differences.
+
+## 3. Test Replication
+
+# Table 1
+The first table presented by the authors are the results of a Difference-in-Difference model to analyse the impact of the vote centers on turnout. For this, a fixed effect clustering standard errors for presidential, midterm and constitutional elections is shown. To summarize, what is made is the comparison of counties which, in a specific type of election in a specific period of time, to those counties which did not have a vote center (considering a specific period of time and the same type of election).
+
+Considering this specific approach, we have to make some modifications on the original data to fit the intend analysis. There are two factors attached to the different types of election: the period of time and the treatment (1 = vote center, 0 = no vote center). First we mutate the table the comparisons we want. The counties with vote centers in the 2016 Presidential Election are compared to those without it in the 2012 Presidential Elections (column “pres”); the counties with vote centers in the 2012 Midterm election are compared to those without it in the 2010 Midterm election (column “midt”); and the counties with vote centers in the 2017 Constitutional Election are compared to those without it in the 2009 Constitutional Election (column “cons”).
+
+
+```{r}
+# Preparing the data for Table 1
+
+data1 <- data %>%
+  mutate(pres = case_when(year == 2016 ~ 1,
+                        year == 2012 ~ 0 ),
+         midt = case_when(year == 2018 ~ 1,
+                        year == 2010 ~ 0 ),
+         cons = case_when(year == 2017 ~ 1, 
+                        year == 2009 ~ 0 ))
+
+``` 
+
+After putting the period of time together with the treatment we  construct our fixed effect model. We have to create three different models, one for each kind of election, using the funcion plm. While doing it, we incorporate the pre-treatment and post-treatment analysis to the time component for each kind of election.
+
+
+````{r}
+#Building the models
+
+reg1 <- plm(turnout ~ votecenter + pres + votecenter * pres + medianinc_rec + bachelor_higher + totalpop_rec, data = data1, index = c("County"), model = "within")
+
+reg2 <- plm(turnout ~ votecenter + midt + votecenter * midt + medianinc_rec + bachelor_higher + totalpop_rec, data = data1, index = c("County"), model = "within")
+
+
+reg3 <- plm(turnout ~ votecenter + cons + votecenter * cons + medianinc_rec + bachelor_higher + totalpop_rec, data = data1, index = c("County"), model = "within")
+
+```
+
+Using the funcion vconvHC we create our tests to estimate the fixed effects of the correlation, accounting on within-county variation. We create on test to each kind of election.
+
+```{r}
+test1 <- vcovHC(reg1, cluster = "group") 
+
+test2 <- vcovHC(reg2, cluster = "group")
+
+test3 <- vcovHC(reg3, cluster = "group")
+
+```
+
+We also compute the standard errors for our different regressions.
+```{r}
+ct1 <- sqrt(diag(test1))
+
+ct2 <- sqrt(diag(test2))
+
+ct3 <- sqrt(diag(test3))
+
+```
+
+We finally create our table put putting the variables together and using the function stargazer.
+```{r table1, results = "asis"}
+
+table1<- stargazer(reg1, reg2, reg3, ct=list(ct1, ct2, ct3), title = "Table 1. Differential impact of vote center on elections", column.sep.width = "10.pt", type = "html", column.labels = c("Presidential <br> (2012-2016)", "Midterm <br> (2010-2018)", "Constitutional <br> (2009-2017)"), covariate.labels = c("Votecenter", "Time P (1 = 2016/0 = 2012)", "Time M (1 = 2018/0 = 2010)", "Time C (1 = 2017/0 = 2009)", "Median Income", "Bachelor's Degree or Higher", "Total Population", "Time P * Vote center", "Time M * Vote center", "Time C * Vote center"), notes.align = "c", dep.var.labels = "Election Cycles", add.lines = list(c("Coefficient Test", test1, test2, test3), align=TRUE))
+
+
+```
+
+# Table 2 
+
+The second table is also the results of a  Difference-in-Difference model to analyse the impact of the vote centers on turnout. However, the focus now is only Constitutional Elections considering different periods of time: 2009-2011 (cons1) - right after the implementation; 2011-2017 (cons2) - acclimation period;  2015-2017 (cons3) - long rung. Now, instead of analysing different counties, the authors compare similar counties that differ only in having versus not having vote centers. With the specific analysis at this level is possible to account whether the impact remains constant over time or only results in immediate impacts just after implementation.
+
+In a similar process to the first table, we modificate the original data to fit the intent analysis, considering the different periods of time.
+```{r}
+data2 <- data %>%
+  mutate(cons1 = case_when(year == 2011 ~ 1,
+                        year == 2009 ~ 0 ),
+         cons2 = case_when(year == 2017 ~ 1,
+                        year == 2011 ~ 0 ),
+         cons3 = case_when(year == 2017 ~ 1, 
+                        year == 2015 ~ 0 )) 
+
+```
+
+After putting the period of time together with the treatment we construct our fixed effect model. We have to create three different models, one for each period of time, using the funcion plm. While doing it, we incorporate the pre-treatment and post-treatment analysis to the time component for each period of time.
+
+
+```{r}
+
+reg4 <- plm(turnout ~ votecenter + cons1 + votecenter * cons1 + medianinc_rec + bachelor_higher + totalpop_rec, data = data2, index = c("County"), model = "within") 
+
+reg5 <- plm(turnout ~ votecenter + cons2 + votecenter * cons2 + medianinc_rec + bachelor_higher + totalpop_rec, data = data2, index = c("County"), model = "within")
+
+reg6 <- plm(turnout ~ votecenter + cons3 + votecenter * cons3 + medianinc_rec + bachelor_higher + totalpop_rec, data = data2, index = c("County"), model = "within")
+
+```
+
+Using the vconvHC function we create our tests to estimate the fixed effects of our models, clustering by group.
+
+```{r}
+test4<- vcovHC(reg4, cluster = "group")
+
+test5 <- vcovHC(reg5, cluster = "group")
+
+test6 <- vcovHC(reg6, type="sss", cluster = "group")
+```
+
+We then compute the standard errors for our different regressions.
+
+```{r}
+ct4 <- sqrt(diag(test4))
+ct5 <- sqrt(diag(test4))
+ct6 <- sqrt(diag(test6))
+```
+
+We finally create our table put putting the variables together and using the function stargazer.
+
+```{r table2, results = "asis"}
+
+table2 <- stargazer(reg4, reg5, reg6, ct = list(ct4, ct5, ct6), column.labels = c("Constitutional <br> (2009-2011)", "Constitutional <br> (2011-2017)", "Constitutional <br> (2015-2017)"), covariate.labels = c("Votecenter", "Time C1 (1 = 2011/0 = 2009)", "Time C2 (1 = 2017/0 = 2011)", "Time C3 (1 = 2017/0 = 2015)", "Median Income", "Bachelor's Degree or Higher", "Total Population", "Time C1 * Vote center", "Time C2 * Vote center", "Time C3 * Vote center"), notes.align = "c", dep.var.labels = "Election Cycles", title = "Table 2. Different impact of vote centers", type = "html", align=TRUE, column.sep.width = "12pt")
+
+```
+
+# Table 3
+
+Table 3 is an estimate of a linear regression in a Differences-in-Differences model through a probability in propensity score matching. It is the model chosen by the authors to test the robustness of the causal inferences made until then - with its strengths and weaknesses, consequently. The process to be done to reproduce it is to pair each column separated by types of election considering counties that have or have not been treated, that is, in which a vote center is present or not. In addition to treatment and outcome (vote turnout), we use as control variables for matching total population, attainment of bachelor degree, median income and time effect on each of the columns (i.e. the type of election). We also include the time effect of each kind of election previously made on table 1 (pres, cons, midt) At the same time, we clean the data and omit the NAs. As a propensity score type of matching, we set the method = “nearest”.
+
+We then perform the matching for each type of election:
+
+```{r}
+
+presmatch1 <- data1 %>% 
+select(turnout, votecenter, medianinc_rec, bachelor_higher, totalpop_rec, pres) %>% 
+na.omit()
+
+prescol1 <- matchit(votecenter ~ medianinc_rec + bachelor_higher + totalpop_rec + pres, method = "nearest", ratio = 1, replace = TRUE, data = presmatch1)
+
+
+midtmatch2 <- data1 %>% 
+select(turnout, votecenter, medianinc_rec, bachelor_higher, totalpop_rec, midt) %>%
+na.omit() 
+
+midtcol2 <- matchit(votecenter ~ medianinc_rec + bachelor_higher + totalpop_rec + midt, method = "nearest", ratio = 1, replace = TRUE, data = midtmatch2)
+
+
+consmatch3 <- data1 %>%
+select(turnout, votecenter, cons, medianinc_rec, bachelor_higher, totalpop_rec) %>% 
+na.omit()
+
+conscol3 <- matchit(votecenter ~ medianinc_rec + bachelor_higher + totalpop_rec + cons, method = "nearest", ratio = 1, replace = TRUE, data = consmatch3)
+```
+
+We then run a regression of the treatment for each column, but first we select the matched data:
+
+```{r}
+
+t3col1 <- match.data(prescol1) 
+
+regpres1 <- lm(turnout ~ votecenter + pres + medianinc_rec + bachelor_higher + totalpop_rec + votecenter*pres, data = t3col1)
+
+
+t3col2 <- match.data(midtcol2)
+
+regmidt2 <- lm(turnout ~ votecenter + midt + medianinc_rec + bachelor_higher + totalpop_rec + votecenter*midt, data = t3col2)
+
+
+t3col3<- match.data(conscol3) 
+
+regcons3 <- lm(turnout ~  votecenter + cons + votecenter * cons + medianinc_rec + bachelor_higher + totalpop_rec, data = t3col3)
+
+```
+
+We finally use the package stargazer to create our table considering the different columns, time effect and treatment.
+
+```{r table3, results = "asis"}
+
+table3 <- stargazer(regpres1,  regmidt2, regcons3, title = "Table 3. Robustness check with propensity score matching ", type = "html", column.labels = c("Presidential", "Midterm", "Constitutional"), covariate.labels = c("Votecenter", "Time P (1 = 2016/0 = 2012)", "Time M (1 = 2018/0 = 2010)", "Time C (1 = 2017/0 = 2009)", "Median Income", "Bachelor's Degree or Higher", "Total Population", "Time P * Vote center (I = yes/0 = no)", "Time M * Vote center", "Time C * Vote center"), notes.align = "c", dep.var.caption  = "Election Cycles", column.sep.width = "10pt", align = TRUE)
+
+```
+
+## 4. Paralel Trends
+
+The parallel trend assumption is possible the most important of the assumptions to ensure validity Difference-in-Differences model. It requires that in the absence of a treatment, the treatment and the control group, in our case, the counties with and without vote centers, stay constant over time. There is no statistical test to rely the internal validity of the design, however is possible to create a graph to inspect it visually. 
+To follow this process with our case, we have to calculate the mean average of voter turnout and check how it varies along the time. We will plot it by grouping the necessary variables - ‘year’, ‘votecenter’ and ‘election’ and adding a variable with the vote turnout mean, creating a new data frame for our graph.
+
+
+```{r}
+ptdata <- data %>%
+group_by(year, votecenter, election) %>% 
+summarise(turnout = mean(turnout))
+
+```
+
+Then we can use the function ggplot to create our graph.
+
+```{r}
+ptdata <- ggplot(ptdata, aes(x=year, y=turnout, color=interaction(election,votecenter), group=interaction(election, votecenter))) +
+  theme(legend.position="bottom") + 
+  geom_path(aes(colour = interaction(election, votecenter)), linetype = 5, size = 1) +
+  labs(y="Vote Turnout") +
+  labs(x="Year") +
+  facet_grid(.~election) +
+  scale_color_discrete(name="Election Type", labels= c("Constitutional Elections no Treatment","Midterm Elections no Treatment", "Presidential Elections no Treatment", "Presidential Elections with Treatment", "Constitutional Election with Treatment", "Midterm Elections with Treatment"))
+ptdata
+```
+
+
+## 5. Robustness test: using the balance table
+
+We propose as a form of robustness test a balance table from our matched data in Table 3. The choice is made use a different instrument to guarantee the robustness of the already made test and, potentially, to infer if the study is biased, considering its weaknesses.
+
+For this, we use our already matched data (t3col1 - Presidential Elections, t3col2 - Midterm Elections, t3col3 - Constitutional elections), used while replicating Table 3 and, using the function kable, we create a balance table for each one of the election types.
+
+
+```{r}
+t3col1 %>%
+  group_by(votecenter) %>%
+  summarise_all(funs(mean(., na.rm = T))) %>%
+  t() %>% 
+  as.data.frame() %>% 
+  add_rownames("Variable") %>% 
+  rename(Without_Votecenter = V1, Votecenter = V2) %>% 
+  mutate(difference = Votecenter - Without_Votecenter,
+         differencePerc = difference / (Votecenter + Without_Votecenter)) %>% 
+  mutate_if(is.numeric, round, 3) %>%
+  kable() %>% 
+  kable_styling()
+
+ t3col2 %>%
+  group_by(votecenter) %>%
+  summarise_all(funs(mean(., na.rm = T))) %>%
+  t() %>% 
+  as.data.frame() %>% 
+  add_rownames("Variable") %>% 
+  rename(Without_Votecenter = V1, Votecenter = V2) %>% 
+  mutate(difference = Votecenter - Without_Votecenter,
+         differencePerc = difference / (Votecenter + Without_Votecenter)) %>% 
+  mutate_if(is.numeric, round, 3) %>%
+  kable() %>% 
+  kable_styling()
+
+ t3col3 %>%
+  group_by(votecenter) %>%
+  summarise_all(funs(mean(., na.rm = T))) %>%
+  t() %>% 
+  as.data.frame() %>% 
+  add_rownames("Variable") %>% 
+  rename(Without_Votecenter = V1, Votecenter = V2) %>% 
+  mutate(difference = Votecenter - Without_Votecenter,
+         differencePerc = difference / (Votecenter + Without_Votecenter)) %>% 
+  mutate_if(is.numeric, round, 3) %>%
+  kable() %>% 
+  kable_styling()
+```
+
+## 6. Conclusion
+
+The analysis of what was accomplished by the authors can lead us to the perception of how solid the model is built and to start with different strategies on how to build other forms of analysis of the hypothesis. When analyzing the process that resulted in Table 1, we see that when creating models for the three types of election, there is no significant causal effect of voter turnout by type of election considering the presence of the vote center in different electoral cycles.
+
+The same can be said of the results in Table 2. When trying to prove that the vote center can have a specifically positive effect on Constitutional Elections, the result was not statistically significant, despite a small increase in the short-term voter turnout, shortly after the program implementation, which is not consistent over the long term.
+
+While the chosen robustness test using propensity score matching pointed the same direct and the parallel trend assumption was not violated, is important to make some remarks about the methods used.
+
+Firstly, it is important to note that the propensity score matching test, despite its popularity when it is impossible to carry out completely random experiments, is generally treated in the literature as a bad example when it comes to the goodness of fit while adjusting for confounding in observational studies. The results of the studies can be biased, increasing imbalance matching, instead of decreasing it. 
+
+It is also important to highlight the model used as the basis for the study, the Difference-in-Difference, requires data from before and after the intervention. When working with time periods delimited by before and after it is possible to remove bias in the period after treatment, resulting in comparisons between the control group and the treatment group that are permanent, as well as temporal comparisons in the treatment group that are the result of other factors. The study by Cortina and Rottinghaus does not work with this data coverage, which  could, then, put in question the entire validity of the study.
+
+The result of the Parallel Trends Assumption analysis goes towards almost the same problem: although the study does not violate this assumption, it is important to note that the test period is relatively short, which increases the probability of holding its validity.
+
+
+With all these factors in mind, it is in doubt whether it is worth proposing another way of testing robustness without appreciably affecting the structure of the whole study. What was proposed, then, was to carry out a balance table from Table 3, using another instrument to guarantee the robustness of the test and, potentially, to infer if the study is biased with all the aforementioned points.
+
+Despite this second test reached the same conclusions as the authors, that is, that in fact the vote centers do not increase the vote turnout in a statistically significant way, it is important to take into account all those points previously mentioned that question the solidity and, consequently the validity of the entire study.
