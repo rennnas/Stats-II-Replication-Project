@@ -23,7 +23,7 @@ In order to analyze the causal effect of the voting center on voter turnout, con
  
  
 ## Results
-![] (https://github.com/rennnas/Stats-II-Replication-Project/blob/main/imagem%202.png)
+![](https://github.com/rennnas/Stats-II-Replication-Project/blob/main/imagem%202.png)
  
  
 ## Conclusion 
